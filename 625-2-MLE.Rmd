@@ -1,0 +1,334 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r, echo = FALSE, message = FALSE}
+library(ggplot2)
+library(purrr)
+library(dplyr)
+library(ggthemr)
+library(gridExtra)
+ggthemr("flat dark")
+```
+---
+title: "Plotting Maximum Likelihood for Right Censored Exponential Survival Times"
+author: "Daniel Claborne"
+date :  "November 20, 2017"
+output: html_document
+---
+As the title suggests, I'm going to be looking at some right censored data and the likelihood for the distribution that produced it.  The gist is that we want to see we have an unbiased estimator of the true parameter in the case of censored data.
+
+Additionally, I will show that the formulas do not work in the presence of informative censoring.
+
+
+#Some handy functions
+
+We create two functions that calculate the contribution to the overall likelihood for true and censored data.  We scale the likelihood by the maximum value for plotting purposes.  Since we are just dividing by a constant, this does not affect our maximum likelihood estimate.
+
+```{r, eval = FALSE}
+###Returns a value of the likelihood for some value of the parameter (lambda), and data (x)
+l_true <- function(lambda, x)
+
+###Performs the same function but for censored data, with an added argument for censoring times
+l_censored <- function(lambda, x, censor_time)
+```
+
+Additionally, we have a function that generates a dataframe of the true survival times and censored survival times
+
+```{r, eval = FALSE}
+###Generates censored data of size n from some distribution (in our case, exponential), with the option to choose fixed, random, or informative censoring
+rsurv <- function(dist_function, n, censor_time = 1, parameter, censoring_mode = "fixed", ...)
+```
+
+```{r, echo = FALSE}
+l_true <- function(lambda, x){(lambda^length(x)*exp(-lambda*sum(x)))/max(lambda^length(x)*exp(-lambda*sum(x)))}
+
+l_censored <- function(lambda, x, censor_time){
+  
+  if(length(censor_time) == 1) {censor_time = rep(censor_time, length(x))}
+  
+  (lambda^length(x[x < censor_time])*exp(-lambda*sum(x[x < censor_time])))*
+    exp(-lambda*sum(censor_time[censor_time <=x]))/
+    max(lambda^length(x[x < censor_time])*exp(-lambda*sum(x[x < censor_time]))*exp(-lambda*sum(censor_time[censor_time <= x])))
+  }
+```
+
+
+
+```{r, echo = FALSE}
+rsurv <- function(dist_function, n, censor_time = 1, parameter, censoring_mode = "fixed", ...){
+  if(censoring_mode == "fixed"){
+    
+    surv_times <- dist_function(n, parameter, ...)
+    
+    censor_times <- replace(surv_times, surv_times > censor_time, censor_time)
+    
+    return(data.frame("survival_times" = surv_times, "censored_data" = censor_times))
+  }
+  
+  if(censoring_mode == "random"){
+    surv_times <- dist_function(n, parameter, ...)
+    
+    censor_times <- runif(n, mean(surv_times) - sd(surv_times), mean(surv_times) + sd(surv_times))
+    censored_data <- replace(surv_times, which(surv_times > censor_times), censor_times[censor_times < surv_times]) 
+    
+    return(data.frame("survival_times" = surv_times, "censor_times" = censor_times, "censored_data" = censored_data))
+  }
+  
+  if(censoring_mode == "informative"){
+    surv_times <- dist_function(n, parameter, ...)
+    u <- mean(s_times)
+    
+    i_times <- 0
+    i_times[which(s_times < u)] <- runif(length(which(s_times < u)), u-sd(s_times), u)
+    i_times[which(s_times >= u)] <- runif(length(which(s_times >= u)), u ,u+sd(s_times))
+    
+    censored_data <- replace(surv_times, which(surv_times > i_times), i_times[i_times < surv_times]) 
+    
+    return(data.frame("survival_times" = surv_times, "informative_censor_times" = i_times, "censored_data" = censored_data))
+    
+  }
+}
+```
+
+<br>
+
+**Lets see what happens with fixed censoring...**
+
+We create two lists of 50 **samples** of size 50 from an exponential distribution with rate parameter $\lambda = 1$.  The data is then censored at time 1.
+
+```{r, eval = FALSE}
+
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+```
+
+<br>
+
+Now we plot the likelihood functions for each sample.
+
+```{r, eval=FALSE}
+####Code for first plot
+mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Uncensored data, uncensored likelihood")+
+            mle1.plots
+```
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+
+mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
+mle2.plots <- map(censored_list, ~stat_function(fun = l_true, col = "red", args = list(.x)))
+mle3.plots <- map2(uncensored_list, 1, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
+
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Uncensored data, uncensored likelihood")+
+            mle1.plots
+```
+</div>
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, censored likelihood")+
+            mle3.plots
+```
+</div>
+
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, uncensored likelihood")+
+            mle2.plots
+
+```
+
+We can see that for uncensored and censored data, using the appropriate formula, the maximum of likelihood of $\lambda$ is, across repeat samples, around the true value of the rate parameter ($\lambda$ = 1).  When we attempt to use the function for uncensored data on censored data, we can see that our estimates are biased towards larger values of $\lambda$.  This makes sense, as with the rate paremetrization, the mean of an exponential distribution is $1/\lambda$.  We have thus estimated a smaller mean survival time; a result of treating right censored(made smaller) observations as true event times.
+
+<br>
+
+**Random Censoring**
+
+If we employ random, noninformative censoring, we should still see unbiased estimates of $\lambda$, lets check:
+
+```{r, eval = FALSE}
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = "random")
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+```
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+
+mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
+mle2.plots <- map(censored_list, ~stat_function(fun = l_true, col = "red", args = list(.x)))
+mle3.plots <- map2(uncensored_list, 1, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
+
+
+
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Uncensored data, uncensored likelihood")+
+            mle1.plots
+```
+</div>
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, censored likelihood")+
+            mle3.plots
+```
+</div>
+
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, uncensored likelihood")+
+            mle2.plots
+
+            
+            
+  #scale_color_manual(name = "", values=c("green", "orange", "red"),
+  #                   labels=c("Uncensored data, uncensored likelihood", 
+  #                   "Censored data, censored likelihood", 
+  #                   "Censored data, uncensored likelihood"))
+```
+
+We still see unbiased estimates for the true parameter as long as the appropriate likelihood is used.
+
+**Informative Censoring**
+
+Very quickly, I will show that informative censoring invalidates the likelihood equations.  The informative censoring happens by censoring survival times with different probabilities depending on whether or not the survival time is above or below the mean survival time.
+
+```{r, eval = FALSE}
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = "informative")
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+```
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+censored_list <- list()
+uncensored_list <- list()
+
+for(i in 1:50){
+  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  
+  censored_list[[i]] <- df$censored_data
+  uncensored_list[[i]] <- df$survival_times
+}
+
+rm(df)
+
+mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
+mle2.plots <- map(censored_list, ~stat_function(fun = l_true, col = "red", args = list(.x)))
+mle3.plots <- map2(uncensored_list, 1, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
+
+
+
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Uncensored data, uncensored likelihood")+
+            mle1.plots
+```
+</div>
+
+<div style = "margin-bottom:-100px;">
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, censored likelihood")+
+            mle3.plots
+```
+</div>
+
+```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
+ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
+            xlab("Lambda")+
+            ylab("Scaled Likelihood")+
+            ggtitle("Censored data, uncensored likelihood")+
+            mle2.plots
+
+            
+            
+  #scale_color_manual(name = "", values=c("green", "orange", "red"),
+  #                   labels=c("Uncensored data, uncensored likelihood", 
+  #                   "Censored data, censored likelihood", 
+  #                   "Censored data, uncensored likelihood"))
+```
+
+We see some positive bias in the maximum likelihood estimates, a result of the particular form of informative censoring I built into the function.  **Note:** All three graphs show a biased estimate, you can eyeball a rightward shift even in the green and orange plots as compared to the same plots in the fixed and random censoring cases.
+
+<br>
+
+In summary, when no censoring occurs, the likelihood is easily computed we can see that the MLE is an unbiased estimator of the true parameter.  When there is censoring, either fixed or truly random, we must make sure that contributions to the likelihood from censored observations account for (use the second formula/function) the censoring.  In the case of right censored data, failure to do so will result in an upward bias in our estimates.  Finally, we saw that in the presence of informative censoring, the MLE is biased even when we account for the censoring in the likelihood.
+
+
+
+
+
+
+
