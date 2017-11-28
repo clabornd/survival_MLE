@@ -78,11 +78,11 @@ rsurv <- function(dist_function, n, censor_time = 1, parameter, censoring_mode =
   
   if(censoring_mode == "informative"){
     surv_times <- dist_function(n, parameter, ...)
-    u <- mean(s_times)
+    u <- mean(surv_times)
     
     i_times <- 0
-    i_times[which(s_times < u)] <- runif(length(which(s_times < u)), u-sd(s_times), u)
-    i_times[which(s_times >= u)] <- runif(length(which(s_times >= u)), u ,u+sd(s_times))
+    i_times[which(surv_times < u)] <- surv_times[which(surv_times < u)]
+    i_times[which(surv_times >= u)] <- runif(length(which(surv_times >= u)), u ,u+sd(surv_times))
     
     censored_data <- replace(surv_times, which(surv_times > i_times), i_times[i_times < surv_times]) 
     
@@ -183,12 +183,14 @@ If we employ random, noninformative censoring, we should still see unbiased esti
 ```{r, eval = FALSE}
 censored_list <- list()
 uncensored_list <- list()
+censor_times_list <- list()
 
 for(i in 1:50){
   df <- rsurv(rexp, 50, parameter = 1, censoring_mode = "random")
   
   censored_list[[i]] <- df$censored_data
   uncensored_list[[i]] <- df$survival_times
+  censor_times_list[[i]] <- df$censor_times
 }
 
 rm(df)
@@ -198,21 +200,21 @@ rm(df)
 ```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
 censored_list <- list()
 uncensored_list <- list()
+censor_times_list <- list()
 
 for(i in 1:50){
-  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = "random")
   
   censored_list[[i]] <- df$censored_data
   uncensored_list[[i]] <- df$survival_times
+  censor_times_list[[i]] <- df$censor_times
 }
 
 rm(df)
 
 mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
 mle2.plots <- map(censored_list, ~stat_function(fun = l_true, col = "red", args = list(.x)))
-mle3.plots <- map2(uncensored_list, 1, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
-
-
+mle3.plots <- map2(uncensored_list, censor_times_list, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
 
 ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
             xlab("Lambda")+
@@ -251,17 +253,19 @@ We still see unbiased estimates for the true parameter as long as the appropriat
 
 **Informative Censoring**
 
-Very quickly, I will show that informative censoring invalidates the likelihood equations.  The informative censoring happens by censoring survival times with different probabilities depending on whether or not the survival time is above or below the mean survival time.
+Very quickly, I will show that informative censoring invalidates the likelihood equations.  The informative censoring scheme I use here only has a chance to censor the data if it is above the sample mean survival time.
 
 ```{r, eval = FALSE}
 censored_list <- list()
 uncensored_list <- list()
+censor_times_list <- list()
 
 for(i in 1:50){
-  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = "informative")
+  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = 'informative')
   
   censored_list[[i]] <- df$censored_data
   uncensored_list[[i]] <- df$survival_times
+  censor_times_list[[i]] <- df$informative_censor_times
 }
 
 rm(df)
@@ -271,19 +275,21 @@ rm(df)
 ```{r, echo = FALSE, fig.height = 3, out.width = '100%'}
 censored_list <- list()
 uncensored_list <- list()
+censor_times_list <- list()
 
 for(i in 1:50){
-  df <- rsurv(rexp, 50, censor_time = 1, parameter = 1)
+  df <- rsurv(rexp, 50, parameter = 1, censoring_mode = 'informative')
   
   censored_list[[i]] <- df$censored_data
   uncensored_list[[i]] <- df$survival_times
+  censor_times_list[[i]] <- df$informative_censor_times
 }
 
 rm(df)
 
 mle1.plots <- map(uncensored_list, ~stat_function(fun = l_true, col = "green", args = list(.x)))
 mle2.plots <- map(censored_list, ~stat_function(fun = l_true, col = "red", args = list(.x)))
-mle3.plots <- map2(uncensored_list, 1, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
+mle3.plots <- map2(uncensored_list, censor_times_list, ~stat_function(fun = l_censored, col = "orange", args = list(.x, .y)))
 
 
 
@@ -320,7 +326,7 @@ ggplot(data = data.frame(x = c(0,3)), mapping = aes(x = x)) +
   #                   "Censored data, uncensored likelihood"))
 ```
 
-We see some positive bias in the maximum likelihood estimates, a result of the particular form of informative censoring I built into the function.  **Note:** All three graphs show a biased estimate, you can eyeball a rightward shift even in the green and orange plots as compared to the same plots in the fixed and random censoring cases.
+We can see that this completely breaks our estimation, resulting in a very small estimate for $\lambda$ (longer survival times).  
 
 <br>
 
